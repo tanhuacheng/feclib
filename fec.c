@@ -1,8 +1,10 @@
 #include <stdlib.h>
+#include <string.h>
 #if defined (WIN32) && !defined (__CYGWIN__)
 #include <windows.h>
 #include <winsock.h>
 #else
+#include <unistd.h>
 #include <netinet/in.h>
 // in.h defines htonl as a macro whereas winsock uses funcions.
 #ifdef __CYGWIN__
@@ -74,7 +76,7 @@ fecEncoder *NewFecEncoder (void *userData,
     if (errorMessage) *errorMessage = "FEC : w is too large";
     return NULL;
   }
-  
+
   f = (fecEncoder *) malloc (sizeof (*f) + sizeof (*h) + s * (k + 1));
   if (!f) {
     if (errorMessage) *errorMessage = "FEC : Out of memory";
@@ -102,7 +104,7 @@ fecEncoder *NewFecEncoder (void *userData,
 static void AddToRedundant (fecPayload *buf, fecEncDec *e, int i)
 { // This is called by both the encoder and the decoder when they process the
 // payload. But this code is also repeated where the decoder sets up the
-// matrix. 
+// matrix.
 // I suppose a lot of pseudo random stuff can be tried, but in the end nature
 // will add its own randomness by way of the packets it destroys.
   int row, mid = i * e->w % e->k; // e.g. mid = i * 87654321 % e->k
@@ -128,7 +130,7 @@ static int GetTickCount (void)
   struct timeval tv;
   struct timezone tz;
   gettimeofday (&tv, &tz);
-  return tv.tv_sec * 1000 + tv.tv_usec; // Overflow does not matter.
+  return tv.tv_sec * 1000 + tv.tv_usec / 1000; // Overflow does not matter.
 }
 #endif
 
@@ -136,13 +138,13 @@ static void SendWithDelay (fecPayload *buf, fecEncoder *f)
 {
   headerType *h = (headerType*)(f->e.k * f->e.s + (char*)(f + 1));
   int tick, s = f->e.s + sizeof (*h);
-  
+
   memcpy (h + 1, buf, f->e.s);
   if (f->b > 0) {
     tick = GetTickCount ();
     if (f->lastTime == 0) f->lastTime = tick;
     else {
-      if (tick - f->lastTime < s * 8000 / f->b) 
+      if (tick - f->lastTime < s * 8000 / f->b)
 #if !defined(WIN32) && !defined(__CYGWIN__)
         usleep ((s * 8000 / f->b - tick + f->lastTime) * 1000);
 #else
@@ -152,7 +154,7 @@ static void SendWithDelay (fecPayload *buf, fecEncoder *f)
       if (tick - f->lastTime > 100) f->lastTime += (tick-f->lastTime-100) / 2;
     } // If we are more than a 10th of a second behind we reduce the bitrate.
   }
-  
+
   h->i = htonl (f->e.i++);
   f->userSend (h, s, 1, f->userData);
 }
@@ -167,7 +169,7 @@ static void SendWithDelay (fecPayload *buf, fecEncoder *f)
       off2nd = i - (kdw + 1) * (f->e->k % (f->e->w * 2));
       i2redundant = off2nd < 0 ? i / (kdw + 1) + i % (kdw + 1) * f->e->w * 2 :
           f->e->k % (f->e->w * 2) + off2nd / kdw + off2nd % kdw * f->e->w * 2
-        
+
 */
 
 
@@ -262,7 +264,7 @@ size_t FecDecode (void *buf, size_t size, size_t count, fecDecoder *f)
         f->e->w) * f->e->s + (char*) (f->e + 1)), f->e->g, f->e->s);
     }
   }
-  
+
   return size * count;
 }
 
@@ -308,7 +310,7 @@ void FlushFecDecoder (fecDecoder *f)
     f->missed = NULL;
     return;
   }
-  
+
   r = malloc (sizeof (*r) * f->e->k);
   matrix = malloc (sizeof (*matrix) * f->e->k);
   for (i = 0; i < f->e->k; i++) {
@@ -326,13 +328,13 @@ void FlushFecDecoder (fecDecoder *f)
       f->missed[--f->nmissed] = f->missed[i];
     }
   }
-  
+
   // Now f->missed only contains the payload packets.
   ew = f->e->w;
   ek = f->e->k;
   qsort (f->missed, f->nmissed, sizeof (*f->missed), MissingCompare);
   // The sorting places all the nonzero entries in the matrix together.
-  
+
   for (i = 0; i < f->nmissed; i++) { // Build matrix
     mid = f->missed[i] * f->e->w % f->e->k; // e.g. mid = i * 87654321 % e->k
     coef = f->missed[i] + 1;
@@ -361,11 +363,11 @@ void FlushFecDecoder (fecDecoder *f)
   for (i = 0, tmp = 1; i < (2 << f->e->g) - 2; i++) {
     GFexp[i] = tmp;
     if (i < (1 << f->e->g) - 1) GFlog[tmp] = i;
-    
+
     tmp <<= 1;
     if (tmp >> f->e->g) tmp ^= poly[f->e->g];
   }
-  
+
   // Now the slow bit : creating the pivots rows
   // Actually, if the system is overdetermined to a great degree
   // (i.e. very few packets were lost) all the pivots may already exist,
@@ -422,7 +424,7 @@ void FlushFecDecoder (fecDecoder *f)
       // Now we want *best += best[j] / matrix[j]->pivot * matrix[j].
       // Redundants are easy :
       MAC (leader, matrix[j]->redundant, best->redundant, f->e->g, f->e->s);
-        
+
       // The matrix is itself more tricky : have to check for space first.
       // Note that with normal band matrices we can require that each
       // row's tail not end before the row above it and then the code
@@ -438,7 +440,7 @@ void FlushFecDecoder (fecDecoder *f)
           k * f->e->g * sizeof (best->coef[0]));
         best->len += k;
       }
-      
+
       for (k = (j - matrix[j]->start) / BITS,
       tmp = (j - best->start) / BITS; k < matrix[j]->len; k++, tmp++) {
         MAC (leader, matrix[j]->coef + k * f->e->g,
@@ -447,7 +449,7 @@ void FlushFecDecoder (fecDecoder *f)
     } // For each entry we eliminate
     if (leader != 0) matrix[i++]->pivotLog = GFlog[leader];
   } // For each pivot we need
-  
+
   if (bestLeader < 0) f->lostPackets += f->nmissed;
   else { // Let's do back substitution
     f->correctedPackets += f->nmissed;
@@ -475,7 +477,7 @@ void FlushFecDecoder (fecDecoder *f)
 #ifdef DEBUG_Z2
   fclose (sf);
 #endif
-  
+
   free (GFlog);
   free (GFexp);
   for (i = 0; i < f->e->k; i++) free (r[i].coef);
